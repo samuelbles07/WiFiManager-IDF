@@ -1,6 +1,6 @@
 # WiFiManager for ESP-IDF
 
-> Vibe code all the way through lol. But still need assist here and there to figure out problems/bugs 
+> Vibe code all the way through. But still need assist here and there to figure out problems/bugs. Reference: ![tzapu/WiFiManager](https://github.com/tzapu/WiFiManager) 
 
 ---
 
