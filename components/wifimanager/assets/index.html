@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <meta name="format-detection" content="telephone=no">
+    <title>WiFi Manager</title>
+    <style>
+        body {
+            font-family: verdana, sans-serif;
+            background: #252525;
+            color: #eee;
+        }
+        .c {
+            text-align: center;
+        }
+        div {
+            padding: 5px;
+            font-size: 1em;
+        }
+        input {
+            width: 95%;
+            padding: 5px;
+            font-size: 1em;
+            border: 1px solid #555;
+            background: #333;
+            color: #eee;
+        }
+        input[type="submit"] {
+            border: 0;
+            border-radius: 0.3rem;
+            background: #1fa3ec;
+            color: #fff;
+            line-height: 2.4rem;
+            font-size: 1.2rem;
+            width: 100%;
+        }
+        .q {
+            float: right;
+            width: 64px;
+            text-align: right;
+        }
+        .l {
+            background: url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAMAAABEpIrGAAAALVBMVEX///8EBwfBwsLw8PAzNjaCg4NTVVUjJiZmZ2fV1dX6+voUFxeQkpI8QEBwcnL2QklKAAAASUlEQVQ4EWNYBQmYlJkKlWFTYJJkkmGrYJJgkmErZ5JgkmEby6QQxCTBVsGkwFbBJMHWsSwUxD0xZx4xzgxjnIIKnhgwc5BdYSgAMlAaggoTSEsAAAAASUVORK5CYII=') no-repeat left center;
+            background-size: 1em;
+            padding-left: 1.25em;
+        }
+        .msg {
+            background: #1fa3ec;
+            color: #fff;
+            padding: 1.5rem;
+            margin: 10px 0;
+        }
+        .error {
+            background: #d82c2c;
+        }
+        .success {
+            background: #47d82c;
+        }
+        .wrap {
+            max-width: 320px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        h1 {
+            text-align: center;
+            margin: 20px 0;
+        }
+        h3 {
+            margin: 10px 0;
+        }
+        hr {
+            border-color: #666;
+        }
+        .footer {
+            text-align: center;
+            font-size: 0.8em;
+            color: #888;
+            margin-top: 30px;
+        }
+        a {
+            color: #1fa3ec;
+            text-decoration: none;
+        }
+        a:hover {
+            text-decoration: underline;
+        }
+        .menu {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin: 20px 0;
+        }
+        .menu a {
+            flex: 1;
+            min-width: 120px;
+            padding: 10px;
+            background: #1fa3ec;
+            color: #fff;
+            text-align: center;
+            border-radius: 3px;
+            display: block;
+        }
+        .networks {
+            margin: 20px 0;
+        }
+        .network {
+            padding: 10px;
+            margin: 5px 0;
+            background: #333;
+            border: 1px solid #555;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .network:hover {
+            background: #444;
+        }
+        .network.selected {
+            background: #1fa3ec;
+        }
+        .network-name {
+            font-weight: bold;
+        }
+        .network-info {
+            font-size: 0.8em;
+            color: #aaa;
+        }
+        .signal {
+            width: 20px;
+            height: 20px;
+            background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="%23aaa"><path d="M1 9l2 2c4.97-4.97 13.03-4.97 18 0l2-2C16.93 2.93 7.08 2.93 1 9zm8 8l3 3 3-3c-1.65-1.65-4.34-1.65-6 0zm-4-4l2 2c2.76-2.76 7.24-2.76 10 0l2-2C15.14 9.14 8.87 9.14 5 13z"/></svg>') no-repeat center;
+            background-size: contain;
+        }
+        .form-group {
+            margin: 15px 0;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div class="wrap">
+        <h1>WiFi Manager</h1>
+        
+        {v}
+        
+        <div class="menu">
+            <a href="/wifi">Configure WiFi</a>
+            <a href="/info">Info</a>
+            <a href="/exit">Exit</a>
+        </div>
+        
+        <div id="content">
+            <h3>Available Networks</h3>
+            <div id="networks" class="networks">
+                <div style="text-align: center; padding: 20px;">
+                    <div>Scanning networks...</div>
+                    <div style="margin-top: 10px;">
+                        <a href="javascript:location.reload()">Refresh</a>
+                    </div>
+                </div>
+            </div>
+            
+            <hr>
+            
+            <form action="/wifisave" method="post">
+                <div class="form-group">
+                    <label for="s">SSID</label>
+                    <input id="s" name="s" type="text" placeholder="Enter SSID">
+                </div>
+                
+                <div class="form-group">
+                    <label for="p">Password</label>
+                    <input id="p" name="p" type="password" placeholder="Enter Password">
+                </div>
+                
+                {c}
+                
+                <div class="form-group">
+                    <input type="submit" value="Save">
+                </div>
+            </form>
+        </div>
+        
+        <div class="footer">
+            <hr>
+            <div>WiFiManager ESP-IDF</div>
+        </div>
+    </div>
+    
+    <script>
+        let selectedNetwork = null;
+        
+        function loadNetworks() {
+            fetch('/scan')
+                .then(response => response.json())
+                .then(networks => {
+                    const container = document.getElementById('networks');
+                    if (networks.length === 0) {
+                        container.innerHTML = '<div style="text-align: center; padding: 20px;">No networks found<br><a href="javascript:loadNetworks()">Refresh</a></div>';
+                        return;
+                    }
+                    
+                    container.innerHTML = '';
+                    networks.forEach(network => {
+                        const div = document.createElement('div');
+                        div.className = 'network';
+                        div.onclick = () => selectNetwork(network.ssid, div);
+                        
+                        const signal = getSignalIcon(network.rssi);
+                        const security = network.encryption > 0 ? '🔒' : '';
+                        
+                        div.innerHTML = `
+                            <div>
+                                <div class="network-name">${network.ssid} ${security}</div>
+                                <div class="network-info">Channel ${network.channel}, ${network.rssi}dBm</div>
+                            </div>
+                            <div class="signal">${signal}</div>
+                        `;
+                        
+                        container.appendChild(div);
+                    });
+                })
+                .catch(error => {
+                    document.getElementById('networks').innerHTML = '<div style="text-align: center; padding: 20px;">Error loading networks<br><a href="javascript:loadNetworks()">Retry</a></div>';
+                });
+        }
+        
+        function selectNetwork(ssid, element) {
+            if (selectedNetwork) {
+                selectedNetwork.classList.remove('selected');
+            }
+            selectedNetwork = element;
+            element.classList.add('selected');
+            document.getElementById('s').value = ssid;
+        }
+        
+        function getSignalIcon(rssi) {
+            if (rssi > -50) return '📶';
+            if (rssi > -60) return '📶';
+            if (rssi > -70) return '📶';
+            return '📶';
+        }
+        
+        // Load networks on page load
+        window.onload = function() {
+            loadNetworks();
+        };
+    </script>
+</body>
+</html> 

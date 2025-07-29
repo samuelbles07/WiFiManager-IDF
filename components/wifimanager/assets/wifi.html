@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>WiFi Configuration</title>
+    <style>
+        body {
+            font-family: verdana, sans-serif;
+            background: #252525;
+            color: #eee;
+        }
+        .wrap {
+            max-width: 320px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .msg {
+            background: #1fa3ec;
+            color: #fff;
+            padding: 1.5rem;
+            margin: 10px 0;
+            text-align: center;
+        }
+        .error {
+            background: #d82c2c;
+        }
+        .success {
+            background: #47d82c;
+        }
+        a {
+            color: #1fa3ec;
+            text-decoration: none;
+        }
+        a:hover {
+            text-decoration: underline;
+        }
+        .center {
+            text-align: center;
+            margin: 20px 0;
+        }
+        h1 {
+            text-align: center;
+            margin: 20px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="wrap">
+        <h1>WiFi Configuration</h1>
+        
+        <div class="msg {msgClass}">
+            {message}
+        </div>
+        
+        <div class="center">
+            <a href="/">Back to WiFi Manager</a>
+        </div>
+        
+        <script>
+            // Auto-redirect after successful connection
+            if (window.location.search.includes('success=1')) {
+                setTimeout(function() {
+                    window.location.href = '/';
+                }, 5000);
+            }
+        </script>
+    </div>
+</body>
+</html> 
