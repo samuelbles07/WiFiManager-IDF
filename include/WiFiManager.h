@@ -210,9 +210,12 @@ private:
     
 
     static esp_err_t handleRoot(httpd_req_t *req);
+    static esp_err_t handleWifi(httpd_req_t *req);
+    static esp_err_t handleStatus(httpd_req_t *req);
     static esp_err_t handleScan(httpd_req_t *req);
     static esp_err_t handleWifiSave(httpd_req_t *req);
     static esp_err_t handleInfo(httpd_req_t *req);
+    static esp_err_t handleReset(httpd_req_t *req);
     static esp_err_t handleExit(httpd_req_t *req);
     static esp_err_t handleCaptivePortal(httpd_req_t *req);
     static WiFiManager* getManagerFromRequest(httpd_req_t *req);

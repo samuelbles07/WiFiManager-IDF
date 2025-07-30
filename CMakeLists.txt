@@ -2,11 +2,6 @@ idf_component_register(
     SRCS 
         "src/WiFiManager.cpp"
         "src/WiFiManagerParameter.cpp"
-        "src/wm_dns.cpp"
-        "src/wm_http.cpp"
-        "src/wm_scan.cpp"
-        "src/wm_storage.cpp"
-        "src/wm_state.cpp"
     INCLUDE_DIRS 
         "include"
     PRIV_INCLUDE_DIRS

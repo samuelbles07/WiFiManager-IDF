@@ -1,12 +1,12 @@
 #include "WiFiManager.h"
 #include "wm_config.h"
-#include "wm_internal.h"
 #include "esp_mac.h"
 #include "esp_system.h"
 #include "esp_timer.h"
 #include "esp_netif.h"
 #include "esp_chip_info.h"
 #include "esp_http_server.h"
+#include "esp_wifi.h"
 #include "nvs_flash.h"
 #include "cJSON.h"
 #include "lwip/sockets.h"
@@ -16,6 +16,7 @@
 #include "freertos/task.h"
 #include <cstring>
 #include <algorithm>
+#include <string>
 
 WiFiManager::WiFiManager() :
     _state(WM_STATE_INIT),
@@ -555,6 +556,9 @@ bool WiFiManager::startHTTPServer() {
     config.max_open_sockets = 7;
     config.stack_size = CONFIG_WM_HTTP_STACK_SIZE;
     config.max_uri_handlers = 12; // Increase handler limit
+    config.recv_wait_timeout = 60; // Increase receive timeout to 60 seconds
+    config.send_wait_timeout = 60; // Increase send timeout to 60 seconds  
+    config.uri_match_fn = httpd_uri_match_wildcard; // Enable wildcard URI matching
     config.global_user_ctx = this; // Store WiFiManager instance for handlers
     
     esp_err_t ret = httpd_start(&_httpServer, &config);
@@ -637,14 +641,23 @@ bool WiFiManager::startHTTPServer() {
     };
     httpd_register_uri_handler(_httpServer, &fwlink_uri);
     
-    // Add /wifi route (redirect to root)
+    // Add /wifi route (configure page)
     httpd_uri_t wifi_uri = {
         .uri = "/wifi",
         .method = HTTP_GET,
-        .handler = handleRoot,
+        .handler = handleWifi,
         .user_ctx = this
     };
     httpd_register_uri_handler(_httpServer, &wifi_uri);
+    
+    // Add /status route (connection status JSON)
+    httpd_uri_t status_uri = {
+        .uri = "/status",
+        .method = HTTP_GET,
+        .handler = handleStatus,
+        .user_ctx = this
+    };
+    httpd_register_uri_handler(_httpServer, &status_uri);
     
     WM_LOGI("HTTP server started on port %d", config.server_port);
     return true;
@@ -1283,6 +1296,67 @@ esp_err_t WiFiManager::handleRoot(httpd_req_t *req) {
     return ESP_OK;
 }
 
+esp_err_t WiFiManager::handleWifi(httpd_req_t *req) {
+    WM_LOGD("Serving WiFi configure page");
+    
+    httpd_resp_set_type(req, "text/html");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    
+    // Serve embedded WiFi HTML
+    const size_t wifi_html_len = wifi_html_end - wifi_html_start;
+    httpd_resp_send(req, (const char*)wifi_html_start, wifi_html_len);
+    
+    return ESP_OK;
+}
+
+esp_err_t WiFiManager::handleStatus(httpd_req_t *req) {
+    WM_LOGD("Status check requested");
+    
+    // Get WiFi status
+    wifi_ap_record_t ap_info;
+    bool connected = (esp_wifi_sta_get_ap_info(&ap_info) == ESP_OK);
+    
+    // Get saved WiFi config using WiFi API (not direct NVS access)
+    wifi_config_t wifi_config = {};
+    bool has_saved_config = (esp_wifi_get_config(WIFI_IF_STA, &wifi_config) == ESP_OK);
+    bool has_saved_ssid = has_saved_config && (strlen((char*)wifi_config.sta.ssid) > 0);
+    
+    // Get IP address
+    esp_netif_ip_info_t ip_info;
+    esp_netif_t* netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+    char ip_str[16] = "0.0.0.0";
+    if (netif && esp_netif_get_ip_info(netif, &ip_info) == ESP_OK) {
+        snprintf(ip_str, sizeof(ip_str), IPSTR, IP2STR(&ip_info.ip));
+    }
+    
+    // Create JSON response
+    cJSON* status_json = cJSON_CreateObject();
+    if (status_json) {
+        cJSON_AddBoolToObject(status_json, "connected", connected);
+        if (connected) {
+            cJSON_AddStringToObject(status_json, "ssid", (char*)ap_info.ssid);
+            cJSON_AddStringToObject(status_json, "ip", ip_str);
+        } else if (has_saved_ssid) {
+            cJSON_AddStringToObject(status_json, "saved_ssid", (char*)wifi_config.sta.ssid);
+        }
+        
+        char* json_string = cJSON_Print(status_json);
+        if (json_string) {
+            httpd_resp_set_type(req, "application/json");
+            httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+            httpd_resp_send(req, json_string, strlen(json_string));
+            free(json_string);
+        } else {
+            httpd_resp_send_500(req);
+        }
+        cJSON_Delete(status_json);
+    } else {
+        httpd_resp_send_500(req);
+    }
+    
+    return ESP_OK;
+}
+
 esp_err_t WiFiManager::handleScan(httpd_req_t *req) {
     WM_LOGD("WiFi scan requested");
     WiFiManager* manager = getManagerFromRequest(req);
@@ -1345,28 +1419,51 @@ esp_err_t WiFiManager::handleScan(httpd_req_t *req) {
 }
 
 esp_err_t WiFiManager::handleWifiSave(httpd_req_t *req) {
-    WM_LOGD("WiFi save requested");
+    WM_LOGD("WiFi save requested, content length: %d", req->content_len);
     WiFiManager* manager = getManagerFromRequest(req);
     
-    char buf[1024];
-    int ret = httpd_req_recv(req, buf, sizeof(buf) - 1);
-    if (ret <= 0) {
-        if (ret == HTTPD_SOCK_ERR_TIMEOUT) {
-            httpd_resp_send_408(req);
-        }
+    // Handle larger POST requests with dynamic buffer
+    size_t content_len = req->content_len;
+    if (content_len > 4096) { // Limit to reasonable size
+        WM_LOGE("POST data too large: %d bytes", content_len);
+        httpd_resp_send_err(req, HTTPD_413_CONTENT_TOO_LARGE, "Form data too large");
         return ESP_FAIL;
     }
-    buf[ret] = '\0';
     
-    WM_LOGD("Received data: %s", buf);
+    // Allocate buffer based on actual content length
+    size_t buf_len = (content_len > 0) ? content_len + 1 : 2048;
+    std::unique_ptr<char[]> buf(new char[buf_len]);
+    
+    size_t total_received = 0;
+    size_t remaining = content_len;
+    
+    // Read POST data in chunks if necessary
+    while (remaining > 0) {
+        int ret = httpd_req_recv(req, buf.get() + total_received, remaining);
+        if (ret <= 0) {
+            if (ret == HTTPD_SOCK_ERR_TIMEOUT) {
+                WM_LOGE("Timeout receiving POST data");
+                httpd_resp_send_408(req);
+            } else {
+                WM_LOGE("Error receiving POST data: %d", ret);
+                httpd_resp_send_500(req);
+            }
+            return ESP_FAIL;
+        }
+        total_received += ret;
+        remaining -= ret;
+    }
+    
+    buf[total_received] = '\0';
+    WM_LOGD("Received %d bytes of POST data", total_received);
     
     // Parse form data
     char ssid[33] = {0};
     char password[65] = {0};
     
     // Simple URL decode and parameter parsing
-    char* ssid_param = strstr(buf, "s=");
-    char* pass_param = strstr(buf, "p=");
+    char* ssid_param = strstr(buf.get(), "s=");
+    char* pass_param = strstr(buf.get(), "p=");
     
     // Parse custom parameters
     for (const auto& param : manager->_params) {
@@ -1374,7 +1471,7 @@ esp_err_t WiFiManager::handleWifiSave(httpd_req_t *req) {
         
         // Look for parameter in form data
         std::string param_key = std::string(param->getID()) + "=";
-        char* param_start = strstr(buf, param_key.c_str());
+        char* param_start = strstr(buf.get(), param_key.c_str());
         if (param_start) {
             param_start += param_key.length();
             char* param_end = strchr(param_start, '&');
@@ -1534,31 +1631,143 @@ esp_err_t WiFiManager::handleInfo(httpd_req_t *req) {
     esp_chip_info_t chip_info;
     esp_chip_info(&chip_info);
     
-    char html[2048];
-    snprintf(html, sizeof(html),
-        "<html><head><title>Device Info</title></head><body>"
-        "<h1>Device Information</h1>"
-        "<table border='1'>"
-        "<tr><td>Chip</td><td>%s</td></tr>"
-        "<tr><td>Cores</td><td>%d</td></tr>"
-        "<tr><td>Revision</td><td>%d.%d</td></tr>"
-        "<tr><td>WiFi</td><td>Yes</td></tr>"
-        "<tr><td>Bluetooth</td><td>%s</td></tr>"
-        "<tr><td>Free Heap</td><td>%lu bytes</td></tr>"
-        "<tr><td>WiFiManager Version</td><td>%s</td></tr>"
-        "</table>"
-        "<p><a href='/'>Back to WiFi Manager</a></p>"
-        "</body></html>",
-        CONFIG_IDF_TARGET,
-        chip_info.cores,
-        chip_info.revision / 100,
-        chip_info.revision % 100,
-        (chip_info.features & CHIP_FEATURE_BT) ? "Yes" : "No",
-        esp_get_free_heap_size(),
-        WM_VERSION
-    );
+    // Get WiFi info
+    wifi_ap_record_t ap_info;
+    bool wifi_connected = (esp_wifi_sta_get_ap_info(&ap_info) == ESP_OK);
     
-    httpd_resp_send(req, html, strlen(html));
+    wifi_config_t wifi_config = {};
+    bool has_saved_config = (esp_wifi_get_config(WIFI_IF_STA, &wifi_config) == ESP_OK);
+    bool has_saved_ssid = has_saved_config && (strlen((char*)wifi_config.sta.ssid) > 0);
+    
+    esp_netif_ip_info_t ip_info;
+    esp_netif_t* netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+    char ip_str[16] = "Not connected";
+    if (netif && esp_netif_get_ip_info(netif, &ip_info) == ESP_OK && ip_info.ip.addr != 0) {
+        snprintf(ip_str, sizeof(ip_str), IPSTR, IP2STR(&ip_info.ip));
+    }
+    
+    // Get MAC addresses
+    uint8_t sta_mac[6], ap_mac[6];
+    esp_wifi_get_mac(WIFI_IF_STA, sta_mac);
+    esp_wifi_get_mac(WIFI_IF_AP, ap_mac);
+    
+    // Calculate uptime
+    int64_t uptime_us = esp_timer_get_time();
+    int uptime_sec = uptime_us / 1000000;
+    int hours = uptime_sec / 3600;
+    int minutes = (uptime_sec % 3600) / 60;
+    int seconds = uptime_sec % 60;
+    
+    std::string html = R"(
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Device Info</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background: #f0f0f0; }
+        .wrap { background: white; max-width: 600px; margin: 0 auto; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        .back-link { margin-bottom: 20px; }
+        .back-link a { color: #1fa3ec; text-decoration: none; font-size: 0.9em; }
+        .back-link a:hover { text-decoration: underline; }
+        h1 { color: #1fa3ec; margin-bottom: 30px; text-align: center; }
+        h3 { color: #333; margin-top: 30px; margin-bottom: 15px; border-bottom: 2px solid #1fa3ec; padding-bottom: 5px; }
+        .info-table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+        .info-table td { padding: 10px; border-bottom: 1px solid #eee; }
+        .info-table td:first-child { font-weight: bold; width: 40%; color: #666; }
+        .info-table td:last-child { color: #333; }
+        .pages-list { list-style: none; padding: 0; }
+        .pages-list li { margin: 8px 0; }
+        .pages-list a { color: #1fa3ec; text-decoration: none; display: block; padding: 8px 12px; background: #f8f9fa; border-radius: 4px; }
+        .pages-list a:hover { background: #e9ecef; text-decoration: none; }
+        .status-connected { color: #28a745; font-weight: bold; }
+        .status-disconnected { color: #dc3545; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <div class="wrap">
+        <div class="back-link">
+            <a href="/">← Back to Home</a>
+        </div>
+        
+        <h1>Device Information</h1>
+        
+        <h3>Chip Information</h3>
+        <table class="info-table">
+            <tr><td>Chip Type</td><td>)";
+    html += CONFIG_IDF_TARGET;
+    html += R"(</td></tr>
+            <tr><td>CPU Cores</td><td>)";
+    html += std::to_string(chip_info.cores);
+    html += R"(</td></tr>
+            <tr><td>Chip Revision</td><td>)";
+    html += std::to_string(chip_info.revision / 100) + "." + std::to_string(chip_info.revision % 100);
+    html += R"(</td></tr>
+            <tr><td>WiFi Support</td><td>Yes</td></tr>
+            <tr><td>Bluetooth Support</td><td>)";
+    html += (chip_info.features & CHIP_FEATURE_BT) ? "Yes" : "No";
+    html += R"(</td></tr>
+            <tr><td>Free Heap</td><td>)";
+    html += std::to_string(esp_get_free_heap_size()) + " bytes";
+    html += R"(</td></tr>
+            <tr><td>Uptime</td><td>)";
+    html += std::to_string(hours) + "h " + std::to_string(minutes) + "m " + std::to_string(seconds) + "s";
+    html += R"(</td></tr>
+            <tr><td>WiFiManager Version</td><td>)";
+    html += WM_VERSION;
+    html += R"(</td></tr>
+        </table>
+        
+        <h3>WiFi Information</h3>
+        <table class="info-table">
+            <tr><td>Connection Status</td><td class=")";
+    html += wifi_connected ? "status-connected\">Connected" : "status-disconnected\">Disconnected";
+    html += R"(</td></tr>)";
+    
+    if (wifi_connected) {
+        html += R"(
+            <tr><td>Connected Network</td><td>)";
+        html += (char*)ap_info.ssid;
+        html += R"(</td></tr>
+            <tr><td>Signal Strength</td><td>)";
+        html += std::to_string(ap_info.rssi) + " dBm";
+        html += R"(</td></tr>
+            <tr><td>IP Address</td><td>)";
+        html += ip_str;
+        html += R"(</td></tr>)";
+    } else if (has_saved_ssid) {
+        html += R"(
+            <tr><td>Saved Network</td><td>)";
+        html += (char*)wifi_config.sta.ssid;
+        html += R"(</td></tr>)";
+    }
+    
+    html += R"(
+            <tr><td>Station MAC</td><td>)";
+    char mac_str[18];
+    snprintf(mac_str, sizeof(mac_str), "%02X:%02X:%02X:%02X:%02X:%02X", 
+             sta_mac[0], sta_mac[1], sta_mac[2], sta_mac[3], sta_mac[4], sta_mac[5]);
+    html += mac_str;
+    html += R"(</td></tr>
+            <tr><td>Access Point MAC</td><td>)";
+    snprintf(mac_str, sizeof(mac_str), "%02X:%02X:%02X:%02X:%02X:%02X", 
+             ap_mac[0], ap_mac[1], ap_mac[2], ap_mac[3], ap_mac[4], ap_mac[5]);
+    html += mac_str;
+    html += R"(</td></tr>
+        </table>
+        
+        <h3>Available Pages</h3>
+        <ul class="pages-list">
+            <li><a href="/">🏠 Home</a></li>
+            <li><a href="/wifi">⚙️ Configure WiFi</a></li>
+            <li><a href="/info">ℹ️ Device Info</a></li>
+            <li><a href="/scan">📡 Scan Networks</a></li>
+        </ul>)"
+        "</div>"
+        "</body>"
+        "</html>";
+    
+    httpd_resp_send(req, html.c_str(), html.length());
     return ESP_OK;
 }
 
