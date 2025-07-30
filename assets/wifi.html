@@ -179,7 +179,7 @@
 <body>
     <div class="wrap">
         <div class="back-link">
-            <a href="/">← Back to Home</a>
+            <a href="/">&lt; Back to Home</a>
         </div>
         
         <h1>Configure WiFi</h1>
@@ -273,6 +273,9 @@
             selectedNetwork = element;
             element.classList.add('selected');
             document.getElementById('s').value = ssid;
+            
+            // Focus the password field for immediate typing
+            document.getElementById('p').focus();
         }
         
         function getSignalIcon(rssi) {

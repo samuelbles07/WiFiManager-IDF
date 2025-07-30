@@ -1687,7 +1687,7 @@ esp_err_t WiFiManager::handleInfo(httpd_req_t *req) {
 <body>
     <div class="wrap">
         <div class="back-link">
-            <a href="/">← Back to Home</a>
+            <a href="/">&lt; Back to Home</a>
         </div>
         
         <h1>Device Information</h1>
@@ -1758,10 +1758,10 @@ esp_err_t WiFiManager::handleInfo(httpd_req_t *req) {
         
         <h3>Available Pages</h3>
         <ul class="pages-list">
-            <li><a href="/">🏠 Home</a></li>
-            <li><a href="/wifi">⚙️ Configure WiFi</a></li>
-            <li><a href="/info">ℹ️ Device Info</a></li>
-            <li><a href="/scan">📡 Scan Networks</a></li>
+            <li><a href="/">Home</a></li>
+            <li><a href="/wifi">Configure WiFi</a></li>
+            <li><a href="/info">Device Info</a></li>
+            <li><a href="/scan">Scan Networks</a></li>
         </ul>)"
         "</div>"
         "</body>"
