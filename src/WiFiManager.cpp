@@ -153,6 +153,84 @@ bool WiFiManager::resetSettings() {
     return true;
 }
 
+bool WiFiManager::isWiFiConnected() {
+    // Check if we have an IP address (most reliable indicator)
+    esp_netif_ip_info_t ip_info;
+    esp_netif_t* netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+    
+    if (netif && esp_netif_get_ip_info(netif, &ip_info) == ESP_OK) {
+        return ip_info.ip.addr != 0; // Connected if we have a valid IP
+    }
+    
+    return false;
+}
+
+bool WiFiManager::reconnectWiFi() {
+    return reconnectWiFi(15); // Default 15 second timeout
+}
+
+bool WiFiManager::reconnectWiFi(uint32_t timeoutSeconds) {
+    WM_LOGI("🔄 Attempting WiFi reconnection (timeout: %lu seconds)...", timeoutSeconds);
+    
+    // Check if we have saved credentials
+    wifi_config_t wifi_config = {};
+    esp_err_t ret = esp_wifi_get_config(WIFI_IF_STA, &wifi_config);
+    if (ret != ESP_OK || strlen((char*)wifi_config.sta.ssid) == 0) {
+        WM_LOGE("❌ No saved WiFi credentials found");
+        return false;
+    }
+    
+    // Disconnect first to ensure clean state
+    esp_wifi_disconnect();
+    vTaskDelay(pdMS_TO_TICKS(100));
+    
+    // Attempt to connect
+    ret = esp_wifi_connect();
+    if (ret != ESP_OK) {
+        WM_LOGE("❌ Failed to initiate WiFi connection: %s", esp_err_to_name(ret));
+        return false;
+    }
+    
+    WM_LOGI("📡 WiFi connection attempt initiated for SSID: %s", wifi_config.sta.ssid);
+    
+    // Wait for connection result
+    const uint32_t timeout_ms = timeoutSeconds * 1000;
+    const int check_interval_ms = 250;
+    uint32_t elapsed_ms = 0;
+    
+    while (elapsed_ms < timeout_ms) {
+        // Check if we're connected
+        if (isWiFiConnected()) {
+            WM_LOGI("✅ WiFi reconnection successful!");
+            return true;
+        }
+        
+        // Check if connection failed
+        if (_lastConxResult == WL_WRONG_PASSWORD) {
+            WM_LOGE("❌ WiFi reconnection failed: Wrong password");
+            return false;
+        } else if (_lastConxResult == WL_NO_SSID_AVAIL) {
+            WM_LOGE("❌ WiFi reconnection failed: Network not found");
+            return false;
+        } else if (_lastConxResult == WL_CONNECT_FAILED) {
+            WM_LOGE("❌ WiFi reconnection failed: Connection error");
+            return false;
+        }
+        
+        // Wait before next check
+        vTaskDelay(pdMS_TO_TICKS(check_interval_ms));
+        elapsed_ms += check_interval_ms;
+        
+        // Log progress every 2.5 seconds
+        if (elapsed_ms % 2500 == 0) {
+            WM_LOGD("⏱️  Waiting for WiFi connection... (%lu/%lu seconds)", elapsed_ms/1000, timeout_ms/1000);
+        }
+    }
+    
+    WM_LOGE("❌ WiFi reconnection failed: Timeout after %lu seconds", timeoutSeconds);
+    return false;
+}
+
 // Core connection methods
 bool WiFiManager::autoConnect() {
     return autoConnect(_apName.c_str(), _apPassword.empty() ? nullptr : _apPassword.c_str());

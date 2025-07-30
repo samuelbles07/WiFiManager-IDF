@@ -62,6 +62,11 @@ public:
     
     // WiFi credential management
     bool resetSettings();
+    
+    // WiFi connection management
+    bool isWiFiConnected();
+    bool reconnectWiFi();
+    bool reconnectWiFi(uint32_t timeoutSeconds);
 
     // Timeout configuration
     void setConfigPortalTimeout(uint32_t seconds);
